@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="pl" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Signal Generator Simulator (1kHz - 100kHz)</title>
+  <!-- Tailwind CSS -->
+  <!-- suppress HtmlUnknownTarget -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <!-- suppress HtmlUnknownTarget -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Cyfrowy wyswietlacz 7-segmentowy / LED style */
+    .led-display {
+      font-family: 'JetBrains Mono', monospace;
+      background-color: #05140b;
+      color: #10b981;
+      text-shadow: 0 0 10px rgba(16, 185, 129, 0.5), 0 0 20px rgba(16, 185, 129, 0.2);
+    }
+
+    .led-display-amber {
+      font-family: 'JetBrains Mono', monospace;
+      background-color: #1c1003;
+      color: #f59e0b;
+      text-shadow: 0 0 10px rgba(245, 158, 11, 0.5), 0 0 20px rgba(245, 158, 11, 0.2);
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* Custom Range Slider */
+    input[type=range] {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    input[type=range]:focus {
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 8px;
+      cursor: pointer;
+      background: #1e293b;
+      border-radius: 4px;
+      border: 1px solid #334155;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      height: 20px;
+      width: 20px;
+      border-radius: 50%;
+      background: #3b82f6;
+      cursor: pointer;
+      -webkit-appearance: none;
+      margin-top: -6px;
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+      transition: transform 0.1s ease, background-color 0.1s ease;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      background: #60a5fa;
+    }
+  </style>
+</head>
+<body class="h-full bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-blue-500 selection:text-white">
+
+<!-- Top Header Navigation -->
+<header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="p-2 bg-blue-600/20 text-blue-400 rounded-lg border border-blue-500/30">
+        <i data-lucide="activity" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+          ESP32 PWM Signal Generator
+          <span class="text-xs font-normal px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono-code">v1.2 YAML LEDC</span>
+        </h1>
+        <p class="text-xs text-slate-400">Symulator Czestotliwosci (1 kHz - 100 kHz) &amp; Oscyloskop Live</p>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-4">
+      <!-- LED Indicator GPIO16 -->
+      <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+        <span class="text-xs font-medium text-slate-300">GPIO 16 Output:</span>
+        <div id="gpio-led" class="w-3.5 h-3.5 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981] transition-all duration-75"></div>
+      </div>
+      <!-- Status Badge -->
+      <div id="status-badge" class="hidden sm:flex items-center space-x-2 bg-emerald-500/10 text-emerald-400 text-xs px-3 py-1.5 rounded-lg border border-emerald-500/20">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span>ONLINE (WiFi Connected)</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Main Container -->
+<main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+  <!-- Left Column: Control Panel (5 cols) -->
+  <div class="lg:col-span-5 flex flex-col gap-6">
+
+    <!-- Laboratory Control Panel -->
+    <div class="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden flex flex-col">
+      <div class="px-5 py-4 border-b border-slate-800 bg-slate-800/40 flex justify-between items-center">
+        <h2 class="font-semibold text-slate-200 flex items-center gap-2 text-sm uppercase tracking-wider">
+          <i data-lucide="sliders" class="w-4 h-4 text-blue-400"></i>
+          Panel Sterowania Generatora
+        </h2>
+        <span class="text-xs text-slate-500 font-mono-code">LEDC Channel 0</span>
+      </div>
+
+      <div class="p-5 space-y-6 flex-1">
+
+        <!-- Display LCD/Segment Bar -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="led-display p-3 rounded-xl border border-emerald-900/50 flex flex-col">
+            <span class="text-[10px] text-emerald-600 font-sans font-semibold tracking-wider uppercase">Czestotliwosc</span>
+            <div class="flex items-baseline justify-between mt-1">
+              <span id="lcd-freq" class="text-2xl sm:text-3xl font-bold tracking-tight">1.00</span>
+              <span id="lcd-freq-unit" class="text-xs text-emerald-500 font-sans">kHz</span>
+            </div>
+          </div>
+          <div class="led-display-amber p-3 rounded-xl border border-amber-900/50 flex flex-col">
+            <span class="text-[10px] text-amber-600 font-sans font-semibold tracking-wider uppercase">Wypelnienie (Duty)</span>
+            <div class="flex items-baseline justify-between mt-1">
+              <span id="lcd-duty" class="text-2xl sm:text-3xl font-bold tracking-tight">50</span>
+              <span class="text-xs text-amber-500 font-sans">%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Frequency Slider Control -->
+        <div class="space-y-2">
+          <div class="flex justify-between items-center text-sm">
+            <label for="freq-input" class="font-medium text-slate-300 flex items-center gap-1.5">
+              <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+              Czestotliwosc (Hz):
+            </label>
+            <div class="flex items-center gap-1">
+              <input type="number" id="freq-input" min="1000" max="100000" step="1" value="1000"
+                     class="w-28 bg-slate-950 border border-blue-500/50 rounded-lg px-2 py-1 text-right text-sm font-mono-code text-blue-400 font-bold focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400">
+              <span class="text-xs text-slate-400 font-mono-code">Hz</span>
+            </div>
+          </div>
+          <label for="freq-slider" class="sr-only">Suwak Czestotliwosci</label>
+          <input type="range" id="freq-slider" min="1000" max="100000" step="100" value="1000" class="w-full">
+          <div class="flex justify-between text-[11px] text-slate-500 font-mono-code">
+            <span>1 kHz</span>
+            <span>25 kHz</span>
+            <span>50 kHz</span>
+            <span>75 kHz</span>
+            <span>100 kHz</span>
+          </div>
+        </div>
+
+        <!-- Precyzyjna regulacja Controls -->
+        <div class="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-3">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+            <span class="flex items-center gap-1.5"><i data-lucide="target" class="w-3.5 h-3.5 text-blue-400"></i> Precyzyjna regulacja</span>
+            <span class="text-[10px] text-slate-500 font-mono-code">Krok: 10Hz / 100Hz</span>
+          </div>
+
+          <!-- Przyciski krokowe czestotliwosci -->
+          <div class="grid grid-cols-4 gap-1.5">
+            <button id="freq-dec-100" type="button" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-[11px] font-mono-code rounded border border-slate-700 text-slate-300 transition">-100 Hz</button>
+            <button id="freq-dec-10" type="button" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-[11px] font-mono-code rounded border border-slate-700 text-slate-300 transition">-10 Hz</button>
+            <button id="freq-inc-10" type="button" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-[11px] font-mono-code rounded border border-slate-700 text-slate-300 transition">+10 Hz</button>
+            <button id="freq-inc-100" type="button" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-[11px] font-mono-code rounded border border-slate-700 text-slate-300 transition">+100 Hz</button>
+          </div>
+
+          <!-- Przyciski krokowe wypelnienia -->
+          <div class="flex items-center justify-between pt-1 border-t border-slate-900 text-xs">
+            <span class="text-slate-400">Zmiana wypelnienia:</span>
+            <div class="flex gap-1.5">
+              <button id="duty-dec-1" type="button" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:bg-amber-600 font-mono-code rounded border border-slate-700 text-slate-300 transition">-1%</button>
+              <button id="duty-inc-1" type="button" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:bg-amber-600 font-mono-code rounded border border-slate-700 text-slate-300 transition">+1%</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Duty Cycle Slider Control -->
+        <div class="space-y-2 pt-2 border-t border-slate-800">
+          <div class="flex justify-between items-center text-sm">
+            <label for="duty-input" class="font-medium text-slate-300 flex items-center gap-1.5">
+              <i data-lucide="percent" class="w-4 h-4 text-blue-400"></i>
+              Wypelnienie Przebiegu (1% - 90%):
+            </label>
+            <div class="flex items-center gap-1">
+              <input type="number" id="duty-input" min="1" max="90" step="1" value="50"
+                     class="w-20 bg-slate-950 border border-amber-500/50 rounded-lg px-2 py-1 text-right text-sm font-mono-code text-amber-400 font-bold focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400">
+              <span class="text-xs text-slate-400 font-mono-code">%</span>
+            </div>
+          </div>
+          <label for="duty-slider" class="sr-only">Suwak Wypelnienia</label>
+          <input type="range" id="duty-slider" min="1" max="90" step="1" value="50" class="w-full">
+          <div class="flex justify-between text-[11px] text-slate-500 font-mono-code">
+            <span>1% (Minimum)</span>
+            <span>50% (Square)</span>
+            <span>90% (Maksimum)</span>
+          </div>
+        </div>
+
+        <!-- Sweep Control Section -->
+        <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="repeat" class="w-4 h-4 text-emerald-400"></i>
+              <label for="sweep-toggle" class="text-sm font-medium text-slate-200 cursor-pointer">Przemiatanie (Sweep Mode)</label>
+            </div>
+            <!-- Switch Toggle -->
+            <label for="sweep-toggle" class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="sweep-toggle" class="sr-only peer">
+              <span class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></span>
+            </label>
+          </div>
+
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Automatyczna petla plynnie zwiekszajaca i zmniejszajaca czestotliwosc w zakresie 1 kHz – 100 kHz.
+          </p>
+
+          <!-- Sweep Speed Slider -->
+          <div id="sweep-speed-container" class="space-y-1.5 pt-2 border-t border-slate-800/80 transition-opacity opacity-50 pointer-events-none">
+            <div class="flex justify-between text-xs text-slate-300">
+              <label for="sweep-speed-slider" class="cursor-pointer">Predkosc Skoku Sweep:</label>
+              <span id="sweep-speed-val" class="font-mono-code text-emerald-400">50 ms</span>
+            </div>
+            <input type="range" id="sweep-speed-slider" min="10" max="200" step="5" value="50" class="w-full">
+          </div>
+        </div>
+
+        <!-- Quick Preset Buttons -->
+        <div class="pt-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2 block">Szybkie Nastawy:</span>
+          <div class="grid grid-cols-4 gap-2">
+            <button type="button" class="preset-btn px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-mono-code rounded-lg border border-slate-700 transition" data-freq="1000" data-duty="50">1 kHz</button>
+            <button type="button" class="preset-btn px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-mono-code rounded-lg border border-slate-700 transition" data-freq="10000" data-duty="50">10 kHz</button>
+            <button type="button" class="preset-btn px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-mono-code rounded-lg border border-slate-700 transition" data-freq="50000" data-duty="50">50 kHz</button>
+            <button type="button" class="preset-btn px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-mono-code rounded-lg border border-slate-700 transition" data-freq="100000" data-duty="25">100 kHz</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right Column: Oscilloscope & Telemetry (7 cols) -->
+  <div class="lg:col-span-7 flex flex-col gap-6">
+
+    <!-- Oscilloscope Box -->
+    <div class="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden flex flex-col flex-1">
+      <div class="px-5 py-4 border-b border-slate-800 bg-slate-800/40 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+          <h2 class="font-semibold text-slate-200 text-sm uppercase tracking-wider">Oscyloskop Cyfrowy (Live Canvas)</h2>
+        </div>
+        <div class="flex items-center space-x-3 text-xs text-slate-400 font-mono-code">
+          <span id="scope-timebase">X-Scale: Auto</span>
+          <span class="text-slate-600">|</span>
+          <span>CH1: 3.3V GPIO16</span>
+        </div>
+      </div>
+
+      <!-- Canvas Viewport -->
+      <div class="relative flex-1 bg-slate-950 p-4 min-h-[320px] flex items-center justify-center overflow-hidden">
+        <canvas id="oscilloscope" class="w-full h-full rounded-xl block cursor-crosshair"></canvas>
+
+        <!-- Canvas Overlay Telemetry -->
+        <div class="absolute top-6 left-6 bg-slate-900/80 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-lg text-[11px] font-mono-code space-y-0.5 pointer-events-none">
+          <div class="text-emerald-400 font-bold">CH1 PROSTOKAT</div>
+          <div class="text-slate-300">Vpp: <span class="text-white">3.30 V</span></div>
+          <div class="text-slate-300">Vhigh: <span class="text-white">3.30 V</span> | Vlow: <span class="text-white">0.00 V</span></div>
+        </div>
+
+        <div class="absolute bottom-6 right-6 bg-slate-900/80 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-lg text-[11px] font-mono-code text-right space-y-0.5 pointer-events-none">
+          <div class="text-blue-400">POMIARY ELEKTRYCZNE</div>
+          <div class="text-slate-300">Okres (T): <span id="meas-period" class="text-white font-bold">1000.0 us</span></div>
+          <div class="text-slate-300">Czas HIGH (T_on): <span id="meas-ton" class="text-white font-bold">500.0 us</span></div>
+          <div class="text-slate-300">Napiecie RMS: <span id="meas-rms" class="text-white font-bold">2.33 V</span></div>
+        </div>
+      </div>
+
+      <!-- Oscilloscope Bottom Bar controls -->
+      <div class="px-5 py-3 border-t border-slate-800 bg-slate-900 flex flex-wrap justify-between items-center gap-4 text-xs">
+        <div class="flex items-center space-x-4">
+          <label for="freeze-scope" class="flex items-center space-x-1.5 text-slate-300 cursor-pointer">
+            <input type="checkbox" id="freeze-scope" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0">
+            <span>Zamroz Przebieg (Hold)</span>
+          </label>
+          <label for="show-grid" class="flex items-center space-x-1.5 text-slate-300 cursor-pointer">
+            <input type="checkbox" id="show-grid" checked class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0">
+            <span>Siatka (Grid)</span>
+          </label>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <span class="text-slate-400">Zoom Skali X:</span>
+          <button id="zoom-out" type="button" class="p-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-200">
+            <i data-lucide="zoom-out" class="w-3.5 h-3.5"></i>
+          </button>
+          <span id="zoom-level" class="font-mono-code text-blue-400 px-1">1.0x</span>
+          <button id="zoom-in" type="button" class="p-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-200">
+            <i data-lucide="zoom-in" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calculated Physics Info Card -->
+    <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+      <div class="p-2 bg-slate-950/50 rounded-lg border border-slate-800/80">
+        <span class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Czestotliwosc f</span>
+        <span id="card-freq" class="text-sm sm:text-base font-bold font-mono-code text-blue-400">1.00 kHz</span>
+      </div>
+      <div class="p-2 bg-slate-950/50 rounded-lg border border-slate-800/80">
+        <span class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Czas Trwania (T)</span>
+        <span id="card-period" class="text-sm sm:text-base font-bold font-mono-code text-emerald-400">1.000 ms</span>
+      </div>
+      <div class="p-2 bg-slate-950/50 rounded-lg border border-slate-800/80">
+        <span class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Czas Stanu 1 (T_on)</span>
+        <span id="card-ton" class="text-sm sm:text-base font-bold font-mono-code text-amber-400">0.500 ms</span>
+      </div>
+      <div class="p-2 bg-slate-950/50 rounded-lg border border-slate-800/80">
+        <span class="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Skuteczne V_RMS</span>
+        <span id="card-vrms" class="text-sm sm:text-base font-bold font-mono-code text-purple-400">2.33 V</span>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<!-- Footer -->
+<footer class="border-t border-slate-800/80 bg-slate-900/40 py-3 text-center text-xs text-slate-500">
+  ESP32 Hardware LEDC Simulator &bull; Obsluga czestotliwosci 1 kHz – 100 kHz z pelnym wsparciem wypelnienia 1-90%
+</footer>
+
+<!-- Logic Script -->
+<script>
+  /* global lucide */
+  // Inicjalizacja ikon Lucide w bezpieczny sposob
+  window.addEventListener('DOMContentLoaded', () => {
+    // @ts-ignore
+    const lucideObj = window['lucide'];
+    if (lucideObj && typeof lucideObj.createIcons === 'function') {
+      lucideObj.createIcons();
+    }
+  });
+
+  // State Variables
+  let frequency = 1000;  // Hz (1000 - 100000)
+  let dutyCycle = 50;    // % (1 - 90)
+  let sweepActive = false;
+  let sweepSpeedMs = 50;
+  let zoomLevel = 1.0;
+  let isScopeFrozen = false;
+  let showGrid = true;
+  let sweepDirection = 1; // 1 for up, -1 for down
+
+  // Canvas & Context
+  const canvas = document.getElementById('oscilloscope');
+  const ctx = canvas ? canvas.getContext('2d') : null;
+  let phaseShift = 0; // Animation offset
+
+  // DOM Elements
+  const freqSlider = document.getElementById('freq-slider');
+  const freqInput = document.getElementById('freq-input');
+  const dutySlider = document.getElementById('duty-slider');
+  const dutyInput = document.getElementById('duty-input');
+
+  const lcdFreq = document.getElementById('lcd-freq');
+  const lcdFreqUnit = document.getElementById('lcd-freq-unit');
+  const lcdDuty = document.getElementById('lcd-duty');
+
+  const sweepToggle = document.getElementById('sweep-toggle');
+  const sweepSpeedSlider = document.getElementById('sweep-speed-slider');
+  const sweepSpeedVal = document.getElementById('sweep-speed-val');
+  const sweepSpeedContainer = document.getElementById('sweep-speed-container');
+
+  const gpioLed = document.getElementById('gpio-led');
+  const freezeScopeCheckbox = document.getElementById('freeze-scope');
+  const showGridCheckbox = document.getElementById('show-grid');
+
+  const zoomInBtn = document.getElementById('zoom-in');
+  const zoomOutBtn = document.getElementById('zoom-out');
+  const zoomLevelText = document.getElementById('zoom-level');
+
+  // Measurement DOM Elements
+  const measPeriod = document.getElementById('meas-period');
+  const measTon = document.getElementById('meas-ton');
+  const measRms = document.getElementById('meas-rms');
+
+  const cardFreq = document.getElementById('card-freq');
+  const cardPeriod = document.getElementById('card-period');
+  const cardTon = document.getElementById('card-ton');
+  const cardVrms = document.getElementById('card-vrms');
+
+  // Preset Buttons
+  const presetBtns = document.querySelectorAll('.preset-btn');
+
+  // Sync and Update logic
+  function updateGeneratorParameters(newFreq, newDuty, updateInputs = true) {
+    // Clamp values
+    frequency = Math.min(Math.max(parseInt(newFreq) || 1000, 1000), 100000);
+    dutyCycle = Math.min(Math.max(parseInt(newDuty) || 50, 1), 90);
+
+    if (updateInputs) {
+      if (freqSlider) freqSlider.value = frequency;
+      if (freqInput) freqInput.value = frequency;
+      if (dutySlider) dutySlider.value = dutyCycle;
+      if (dutyInput) dutyInput.value = dutyCycle;
+    }
+
+    // Update LCD Display
+    if (lcdFreq && lcdFreqUnit) {
+      if (frequency >= 1000) {
+        lcdFreq.textContent = (frequency / 1000).toFixed(frequency % 1000 === 0 ? 1 : 2);
+        lcdFreqUnit.textContent = 'kHz';
+      } else {
+        lcdFreq.textContent = frequency;
+        lcdFreqUnit.textContent = 'Hz';
+      }
+    }
+    if (lcdDuty) lcdDuty.textContent = dutyCycle;
+
+    // Calculate Telemetry
+    const periodSec = 1 / frequency;
+    const periodUs = periodSec * 1000000;
+    const tonUs = periodUs * (dutyCycle / 100);
+
+    // ESP32 GPIO high voltage = 3.3V
+    const vRms = Math.sqrt(Math.pow(3.3, 2) * (dutyCycle / 100));
+
+    // Format Period string
+    let periodStr = periodUs >= 1000 ? (periodUs / 1000).toFixed(3) + " ms" : periodUs.toFixed(1) + " µs";
+    let tonStr = tonUs >= 1000 ? (tonUs / 1000).toFixed(3) + " ms" : tonUs.toFixed(1) + " µs";
+
+    // Update scope metrics
+    if (measPeriod) measPeriod.textContent = periodStr;
+    if (measTon) measTon.textContent = tonStr;
+    if (measRms) measRms.textContent = vRms.toFixed(2) + " V";
+
+    // Update cards
+    if (cardFreq) cardFreq.textContent = (frequency >= 1000) ? (frequency / 1000).toFixed(2) + " kHz" : frequency + " Hz";
+    if (cardPeriod) cardPeriod.textContent = periodStr;
+    if (cardTon) cardTon.textContent = tonStr;
+    if (cardVrms) cardVrms.textContent = vRms.toFixed(2) + " V";
+  }
+
+  // Event Listeners for Sliders & Inputs
+  if (freqSlider) {
+    freqSlider.addEventListener('input', (e) => {
+      updateGeneratorParameters(e.target.value, dutyCycle, false);
+      if (freqInput) freqInput.value = e.target.value;
+    });
+  }
+
+  if (freqInput) {
+    freqInput.addEventListener('input', (e) => {
+      let val = parseInt(e.target.value);
+      if (!isNaN(val)) {
+        updateGeneratorParameters(val, dutyCycle, false);
+        if (freqSlider) freqSlider.value = Math.min(Math.max(val, 1000), 100000);
+      }
+    });
+
+    freqInput.addEventListener('change', (e) => {
+      updateGeneratorParameters(e.target.value, dutyCycle, true);
+    });
+  }
+
+  if (dutySlider) {
+    dutySlider.addEventListener('input', (e) => {
+      updateGeneratorParameters(frequency, e.target.value, false);
+      if (dutyInput) dutyInput.value = e.target.value;
+    });
+  }
+
+  if (dutyInput) {
+    dutyInput.addEventListener('input', (e) => {
+      let val = parseInt(e.target.value);
+      if (!isNaN(val)) {
+        updateGeneratorParameters(frequency, val, false);
+        if (dutySlider) dutySlider.value = Math.min(Math.max(val, 1), 90);
+      }
+    });
+
+    dutyInput.addEventListener('change', (e) => {
+      updateGeneratorParameters(frequency, e.target.value, true);
+    });
+  }
+
+  // Przyciski mikro-krokowe precyzyjnej regulacji
+  const btnDec100 = document.getElementById('freq-dec-100');
+  const btnDec10 = document.getElementById('freq-dec-10');
+  const btnInc10 = document.getElementById('freq-inc-10');
+  const btnInc100 = document.getElementById('freq-inc-100');
+  const btnDutyDec1 = document.getElementById('duty-dec-1');
+  const btnDutyInc1 = document.getElementById('duty-inc-1');
+
+  if (btnDec100) btnDec100.addEventListener('click', () => updateGeneratorParameters(frequency - 100, dutyCycle, true));
+  if (btnDec10) btnDec10.addEventListener('click', () => updateGeneratorParameters(frequency - 10, dutyCycle, true));
+  if (btnInc10) btnInc10.addEventListener('click', () => updateGeneratorParameters(frequency + 10, dutyCycle, true));
+  if (btnInc100) btnInc100.addEventListener('click', () => updateGeneratorParameters(frequency + 100, dutyCycle, true));
+
+  if (btnDutyDec1) btnDutyDec1.addEventListener('click', () => updateGeneratorParameters(frequency, dutyCycle - 1, true));
+  if (btnDutyInc1) btnDutyInc1.addEventListener('click', () => updateGeneratorParameters(frequency, dutyCycle + 1, true));
+
+  // Presets
+  presetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const freq = btn.getAttribute('data-freq');
+      const duty = btn.getAttribute('data-duty');
+      updateGeneratorParameters(freq, duty, true);
+    });
+  });
+
+  // Sweep Mode Toggle & Logic
+  let sweepInterval = null;
+  if (sweepToggle) {
+    sweepToggle.addEventListener('change', (e) => {
+      sweepActive = e.target.checked;
+      if (sweepActive) {
+        if (sweepSpeedContainer) sweepSpeedContainer.classList.remove('opacity-50', 'pointer-events-none');
+        startSweep();
+      } else {
+        if (sweepSpeedContainer) sweepSpeedContainer.classList.add('opacity-50', 'pointer-events-none');
+        stopSweep();
+      }
+    });
+  }
+
+  if (sweepSpeedSlider) {
+    sweepSpeedSlider.addEventListener('input', (e) => {
+      sweepSpeedMs = parseInt(e.target.value);
+      if (sweepSpeedVal) sweepSpeedVal.textContent = sweepSpeedMs + ' ms';
+      if (sweepActive) {
+        stopSweep();
+        startSweep();
+      }
+    });
+  }
+
+  function startSweep() {
+    if (sweepInterval) clearInterval(sweepInterval);
+    sweepInterval = setInterval(() => {
+      let step = 1000;
+      if (frequency >= 50000) step = 5000;
+      else if (frequency >= 20000) step = 2000;
+
+      let nextFreq = frequency + (sweepDirection * step);
+      if (nextFreq >= 100000) {
+        nextFreq = 100000;
+        sweepDirection = -1;
+      } else if (nextFreq <= 1000) {
+        nextFreq = 1000;
+        sweepDirection = 1;
+      }
+      updateGeneratorParameters(nextFreq, dutyCycle, true);
+    }, sweepSpeedMs);
+  }
+
+  function stopSweep() {
+    if (sweepInterval) {
+      clearInterval(sweepInterval);
+      sweepInterval = null;
+    }
+  }
+
+  // Oscilloscope Controls
+  if (freezeScopeCheckbox) {
+    freezeScopeCheckbox.addEventListener('change', (e) => {
+      isScopeFrozen = e.target.checked;
+    });
+  }
+
+  if (showGridCheckbox) {
+    showGridCheckbox.addEventListener('change', (e) => {
+      showGrid = e.target.checked;
+    });
+  }
+
+  if (zoomInBtn) {
+    zoomInBtn.addEventListener('click', () => {
+      if (zoomLevel < 5.0) {
+        zoomLevel = Math.min(5.0, zoomLevel + 0.5);
+        if (zoomLevelText) zoomLevelText.textContent = zoomLevel.toFixed(1) + 'x';
+      }
+    });
+  }
+
+  if (zoomOutBtn) {
+    zoomOutBtn.addEventListener('click', () => {
+      if (zoomLevel > 0.5) {
+        zoomLevel = Math.max(0.5, zoomLevel - 0.5);
+        if (zoomLevelText) zoomLevelText.textContent = zoomLevel.toFixed(1) + 'x';
+      }
+    });
+  }
+
+  // Canvas Rendering Loop
+  function resizeCanvas() {
+    if (!canvas || !canvas.parentElement) return;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  let lastTime = performance.now();
+  function renderOscilloscope(currentTime) {
+    if (!ctx || !canvas) return;
+
+    const deltaTime = currentTime - lastTime;
+    lastTime = currentTime;
+
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // Clear Background
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw Grid
+    if (showGrid) {
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      const numCols = 10;
+      const numRows = 6;
+      const colWidth = width / numCols;
+      const rowHeight = height / numRows;
+
+      for (let i = 1; i < numCols; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * colWidth, 0);
+        ctx.lineTo(i * colWidth, height);
+        ctx.stroke();
+      }
+      for (let j = 1; j < numRows; j++) {
+        ctx.beginPath();
+        ctx.moveTo(0, j * rowHeight);
+        ctx.lineTo(width, j * rowHeight);
+        ctx.stroke();
+      }
+
+      // Center Axes
+      ctx.strokeStyle = '#334155';
+      ctx.beginPath();
+      ctx.moveTo(0, height / 2);
+      ctx.lineTo(width, height / 2);
+      ctx.stroke();
+    }
+
+    // Draw Waveform
+    if (!isScopeFrozen) {
+      phaseShift += (frequency / 1000) * (deltaTime / 15);
+    }
+
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 3;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = '#10b981';
+    ctx.beginPath();
+
+    const yHigh = height * 0.25;
+    const yLow = height * 0.75;
+
+    const periodPixels = (width / (4 / zoomLevel));
+    const dutyRatio = dutyCycle / 100;
+
+    let prevY = null;
+    for (let x = 0; x <= width; x++) {
+      const normalizedX = (x + phaseShift) % periodPixels;
+      const isHigh = normalizedX < (periodPixels * dutyRatio);
+      const currentY = isHigh ? yHigh : yLow;
+
+      if (x === 0) {
+        ctx.moveTo(x, currentY);
+      } else {
+        if (prevY !== null && prevY !== currentY) {
+          ctx.lineTo(x, prevY);
+          ctx.lineTo(x, currentY);
+        } else {
+          ctx.lineTo(x, currentY);
+        }
+      }
+      prevY = currentY;
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0; // Reset glow
+
+    // Blink GPIO LED indicator depending on active signal state
+    if (gpioLed && !isScopeFrozen) {
+      const currentPhase = (phaseShift) % periodPixels;
+      const isHigh = currentPhase < (periodPixels * dutyRatio);
+      if (isHigh) {
+        gpioLed.className = "w-3.5 h-3.5 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981] transition-all duration-75";
+      } else {
+        gpioLed.className = "w-3.5 h-3.5 rounded-full bg-emerald-950 border border-emerald-800 transition-all duration-75";
+      }
+    }
+
+    requestAnimationFrame(renderOscilloscope);
+  }
+
+  // Initialize App Parameters & Start Render Loop
+  updateGeneratorParameters(1000, 50, true);
+  requestAnimationFrame(renderOscilloscope);
+</script>
+</body>
+</html>
